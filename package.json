@@ -1,0 +1,24 @@
+{
+  "name": "mpas-sequencer",
+  "version": "1.0.0",
+  "description": "MPAS Order Sequencing Application",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "keywords": [
+    "sequencing",
+    "mpas",
+    "manufacturing"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.4",
+    "express": "^4.18.2",
+    "mssql": "^10.0.1"
+  }
+}

@@ -1,0 +1,813 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sequencing - MPAS</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body {
+      height: 100%;
+      overflow: hidden;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: #f0f2f5;
+    }
+    .main-container {
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      padding: 10px;
+      gap: 10px;
+    }
+    .header {
+      background: #1976d2;
+      color: white;
+      padding: 12px 20px;
+      border-radius: 6px;
+      flex-shrink: 0;
+      position: relative;
+    }
+    .header h1 { font-size: 20px; margin-bottom: 4px; }
+    .header .info { font-size: 13px; opacity: 0.9; }
+    .btn-refresh {
+      position: absolute;
+      right: 20px;
+      top: 50%;
+      transform: translateY(-50%);
+      background: rgba(255, 255, 255, 0.2);
+      color: white;
+      border: 1px solid rgba(255, 255, 255, 0.3);
+      padding: 6px 12px;
+      border-radius: 4px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .btn-refresh:hover {
+      background: rgba(255, 255, 255, 0.3);
+    }
+    .btn-refresh:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+    .btn-refresh.refreshing {
+      animation: spin 1s linear infinite;
+    }
+    @keyframes spin {
+      from { transform: translateY(-50%) rotate(0deg); }
+      to { transform: translateY(-50%) rotate(360deg); }
+    }
+
+    .container {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      flex: 1;
+      min-height: 0;
+    }
+    .panel {
+      background: white;
+      border-radius: 6px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      position: relative;
+    }
+    .panel-header {
+      padding: 10px 15px;
+      border-bottom: 2px solid #e0e0e0;
+      font-weight: 600;
+      font-size: 14px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: #fafafa;
+      flex-shrink: 0;
+    }
+    .panel-header .count {
+      background: #1976d2;
+      color: white;
+      padding: 3px 10px;
+      border-radius: 10px;
+      font-size: 12px;
+    }
+    .panel-body {
+      flex: 1;
+      overflow: auto;
+      min-height: 0;
+    }
+
+    .panel.drop-active {
+      background: #e3f2fd !important;
+      outline: 4px dashed #1976d2;
+      outline-offset: -4px;
+    }
+    .panel .drop-hint {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background: rgba(25, 118, 210, 0.95);
+      color: white;
+      padding: 30px 50px;
+      border-radius: 15px;
+      font-size: 24px;
+      font-weight: bold;
+      pointer-events: none;
+      display: none;
+      z-index: 1000;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+    }
+    .panel.drop-active .drop-hint {
+      display: block;
+    }
+
+    .drag-count {
+      position: fixed;
+      background: #2196F3;
+      color: white;
+      padding: 10px 16px;
+      border-radius: 25px;
+      font-weight: bold;
+      font-size: 14px;
+      pointer-events: none;
+      z-index: 1000;
+      display: none;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+    }
+    thead {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      background: #f5f5f5;
+    }
+    th {
+      padding: 8px 6px;
+      text-align: left;
+      font-weight: 600;
+      border-bottom: 2px solid #ddd;
+      background: #f5f5f5;
+      white-space: nowrap;
+      font-size: 11px;
+    }
+    td {
+      padding: 6px 6px;
+      border-bottom: 1px solid #eee;
+      font-size: 11px;
+    }
+    tbody tr {
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    tbody tr:hover {
+      background: #f9f9f9;
+    }
+    tbody tr.selected {
+      background: #e3f2fd !important;
+    }
+    tbody tr.dragging {
+      opacity: 0.4;
+      background: #ffeb3b !important;
+    }
+
+    input[type="checkbox"] {
+      width: 16px;
+      height: 16px;
+      cursor: pointer;
+    }
+
+    .drag-handle {
+      cursor: grab;
+      color: #999;
+      font-size: 16px;
+      text-align: center;
+      user-select: none;
+    }
+    tr.dragging .drag-handle {
+      cursor: grabbing;
+    }
+
+    .actions {
+      padding: 10px 15px;
+      background: white;
+      border-radius: 6px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 15px;
+      flex-shrink: 0;
+    }
+    .btn {
+      padding: 8px 16px;
+      border: none;
+      border-radius: 4px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+      white-space: nowrap;
+    }
+    .btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+    .btn-primary {
+      background: #1976d2;
+      color: white;
+    }
+    .btn-primary:hover:not(:disabled) {
+      background: #1565c0;
+    }
+    .btn-ok {
+      background: #4caf50;
+      color: white;
+    }
+    .btn-ok:hover:not(:disabled) {
+      background: #45a049;
+    }
+    .empty-state {
+      text-align: center;
+      padding: 40px 20px;
+      color: #999;
+      font-size: 13px;
+    }
+    .btn-group {
+      display: flex;
+      gap: 8px;
+    }
+    .left-controls {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex: 1;
+    }
+
+    .time-badge {
+      background: #4caf50;
+      color: white;
+      padding: 2px 6px;
+      border-radius: 3px;
+      font-size: 10px;
+      white-space: nowrap;
+    }
+
+    /* Success message */
+    .success-message {
+      display: none;
+      background: #4caf50;
+      color: white;
+      padding: 10px 20px;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 600;
+      animation: slideIn 0.3s ease-out;
+    }
+    .success-message.show {
+      display: block;
+    }
+    @keyframes slideIn {
+      from {
+        opacity: 0;
+        transform: translateX(-20px);
+      }
+      to {
+        opacity: 1;
+        transform: translateX(0);
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="drag-count" id="dragCount">3 items</div>
+  
+  <div class="main-container">
+    <div class="header">
+      <h1>🔹 Sequencing</h1>
+      <div class="info" id="headerInfo">Loading...</div>
+      <button class="btn-refresh" onclick="window.refreshData()" id="refreshBtn" title="Refresh data from database">
+        🔄 Refresh
+      </button>
+    </div>
+
+    <div class="container">
+      <div class="panel" id="leftPanel">
+        <div class="drop-hint">↩️ CANCEL DROP</div>
+        <div class="panel-header">
+          <span>Unscheduled Orders (Drag to schedule →)</span>
+          <span class="count" id="leftCount">0</span>
+        </div>
+        <div class="panel-body">
+          <table>
+            <thead>
+              <tr>
+                <th style="width: 35px;">
+                  <input type="checkbox" id="selectAllLeft" title="Select All">
+                </th>
+                <th>Material Code</th>
+                <th>Material Description</th>
+                <th>Serial No</th>
+                <th>Order No</th>
+                <th>Created Date</th>
+              </tr>
+            </thead>
+            <tbody id="leftBody">
+              <tr><td colspan="6" class="empty-state">Loading...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="panel" id="rightPanel">
+        <div class="drop-hint">⬇ DROP HERE ⬇</div>
+        <div class="panel-header">
+          <span>Scheduled Orders (Drag ⇅ to reorder)</span>
+          <span class="count" id="rightCount">0</span>
+        </div>
+        <div class="panel-body">
+          <table>
+            <thead>
+              <tr>
+                <th style="width: 35px;">
+                  <input type="checkbox" id="selectAllRight" title="Select All">
+                </th>
+                <th style="width: 25px;">⇅</th>
+                <th>Material Code</th>
+                <th>Material Description</th>
+                <th>Serial No</th>
+                <th>Order No</th>
+                <th>Scheduled Time</th>
+              </tr>
+            </thead>
+            <tbody id="rightBody">
+              <tr><td colspan="7" class="empty-state">Drag orders from left or use Add button</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div class="actions">
+      <div class="left-controls">
+        <button class="btn btn-primary" onclick="window.addSelected()" id="addBtn" disabled>➕ Add</button>
+        <button class="btn btn-primary" onclick="window.removeSelected()" id="removeBtn" disabled>⬅ Remove</button>
+      </div>
+      <div class="btn-group">
+        <div class="success-message" id="successMessage">✔ Sequence committed successfully!</div>
+        <button class="btn btn-ok" onclick="window.okSequence()" id="commitBtn">✔ OK - Commit</button>
+      </div>
+    </div>
+  </div>
+
+  <script type="module">
+    import { getParams } from "./app.js";
+    import { loadOrders, commitSequence } from "./api.js";
+    import { state, recalcSchedule } from "./state.js";
+
+    const p = getParams();
+    const dragCountBadge = document.getElementById('dragCount');
+    const leftPanel = document.getElementById('leftPanel');
+    const rightPanel = document.getElementById('rightPanel');
+
+    try {
+      const rows = await loadOrders({ ...p, mode: "Sequence" });
+
+      document.getElementById('headerInfo').textContent =
+        `PlantCode: ${p.plant} | LineCode: ${p.line} | ${p.from} to ${p.to} | MaterialCode: ${p.material || 'ALL'} | | Total: ${rows.length} | User: ${p.username || 'N/A'} | Client: ${p.clientid || 'N/A'}`;
+
+      state.left = rows
+        .filter(o => !o.ScheduledTime)
+        .map(o => ({ ...o, RowID: parseInt(o.RowID) }))
+        .sort((a,b) => new Date(a.OrderCreatedDate) - new Date(b.OrderCreatedDate));
+
+      state.right = rows
+        .filter(o => o.ScheduledTime)
+        .map(o => ({ ...o, RowID: parseInt(o.RowID) }))
+        .sort((a,b) => new Date(a.ScheduledTime) - new Date(b.ScheduledTime));
+
+      let leftSelected = new Set();
+      let rightSelected = new Set();
+      let draggedItems = [];
+      let draggedFrom = null;
+      let isDragging = false;
+      let dropSuccessful = false;
+
+      leftPanel.addEventListener('dragover', (e) => {
+        if (draggedFrom === 'left') {
+          e.preventDefault();
+          e.dataTransfer.dropEffect = 'move';
+          leftPanel.classList.add('drop-active');
+        }
+      });
+
+      leftPanel.addEventListener('dragleave', (e) => {
+        if (!leftPanel.contains(e.relatedTarget)) {
+          leftPanel.classList.remove('drop-active');
+        }
+      });
+
+      leftPanel.addEventListener('drop', (e) => {
+        leftPanel.classList.remove('drop-active');
+        dragCountBadge.style.display = 'none';
+        
+        if (draggedFrom === 'left') {
+          e.preventDefault();
+          e.stopPropagation();
+          dropSuccessful = true;
+          draggedItems = [];
+          draggedFrom = null;
+          renderWithoutFocusLoss();
+        }
+      });
+
+      rightPanel.addEventListener('dragover', (e) => {
+        if (draggedFrom === 'left') {
+          e.preventDefault();
+          e.dataTransfer.dropEffect = 'move';
+          rightPanel.classList.add('drop-active');
+        }
+      });
+
+      rightPanel.addEventListener('dragleave', (e) => {
+        if (!rightPanel.contains(e.relatedTarget)) {
+          rightPanel.classList.remove('drop-active');
+        }
+      });
+
+      rightPanel.addEventListener('drop', async (e) => {
+        rightPanel.classList.remove('drop-active');
+        dragCountBadge.style.display = 'none';
+
+        if (draggedFrom === 'left' && draggedItems.length > 0) {
+          e.preventDefault();
+          e.stopPropagation();
+
+          dropSuccessful = true;
+
+          const draggedIds = new Set(draggedItems.map(i => i.RowID));
+          state.left = state.left.filter(r => !draggedIds.has(r.RowID));
+          state.right.push(...draggedItems);
+
+          draggedItems.forEach(item => leftSelected.delete(item.RowID));
+
+          await recalcSchedule(p.plant, 240);
+
+          draggedItems = [];
+          draggedFrom = null;
+
+          renderWithoutFocusLoss();
+        }
+      });
+
+      function render() {
+        renderLeft();
+        renderRight();
+        updateButtons();
+      }
+
+      function renderWithoutFocusLoss() {
+        render();
+      }
+
+      function renderLeft() {
+        const tbody = document.getElementById('leftBody');
+        document.getElementById('leftCount').textContent = state.left.length;
+
+        if (state.left.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="6" class="empty-state">No unscheduled orders</td></tr>';
+          document.getElementById('selectAllLeft').checked = false;
+          return;
+        }
+
+        tbody.innerHTML = state.left.map(o => {
+          const checked = leftSelected.has(o.RowID);
+          return `
+          <tr data-rowid="${o.RowID}" draggable="true" class="${checked ? 'selected' : ''}">
+            <td style="text-align:center"><input type="checkbox" ${checked ? 'checked' : ''}></td>
+            <td>${o.MaterialCode}</td>
+            <td>${o.MaterialDesc || 'N/A'}</td>
+            <td>${o.SerialNo}</td>
+            <td>${o.OrderNo}</td>
+            <td>${new Date(o.OrderCreatedDate).toLocaleString('en-GB')}</td>
+          </tr>
+        `;
+        }).join('');
+
+        tbody.querySelectorAll('tr[data-rowid]').forEach(row => {
+          const rowId = parseInt(row.dataset.rowid);
+          const checkbox = row.querySelector('input[type="checkbox"]');
+
+          checkbox.addEventListener('change', function(e) {
+            e.stopPropagation();
+            if (this.checked) {
+              leftSelected.add(rowId);
+            } else {
+              leftSelected.delete(rowId);
+            }
+            render();
+          });
+
+          row.addEventListener('click', function(e) {
+            if (isDragging || dropSuccessful) {
+              dropSuccessful = false;
+              return;
+            }
+            if (e.target.type !== 'checkbox') {
+              if (leftSelected.has(rowId)) {
+                leftSelected.delete(rowId);
+              } else {
+                leftSelected.add(rowId);
+              }
+              render();
+            }
+          });
+
+          row.addEventListener('dragstart', (e) => {
+            isDragging = true;
+            dropSuccessful = false;
+
+            if (leftSelected.has(rowId) && leftSelected.size > 0) {
+              draggedItems = state.left.filter(r => leftSelected.has(r.RowID));
+            } else {
+              const item = state.left.find(r => r.RowID === rowId);
+              draggedItems = [item];
+            }
+
+            draggedFrom = 'left';
+            row.classList.add('dragging');
+
+            if (draggedItems.length > 1) {
+              dragCountBadge.textContent = `${draggedItems.length} items`;
+              dragCountBadge.style.display = 'block';
+            }
+
+            e.dataTransfer.effectAllowed = 'move';
+          });
+
+          row.addEventListener('dragend', (e) => {
+            isDragging = false;
+            row.classList.remove('dragging');
+            dragCountBadge.style.display = 'none';
+            rightPanel.classList.remove('drop-active');
+            leftPanel.classList.remove('drop-active');
+
+            if (!dropSuccessful && draggedItems.length > 0) {
+              draggedItems = [];
+              draggedFrom = null;
+            }
+          });
+
+          row.addEventListener('drag', (e) => {
+            if (draggedItems.length >= 1 && e.clientX > 0) {
+              dragCountBadge.style.left = (e.clientX + 20) + 'px';
+              dragCountBadge.style.top = (e.clientY - 20) + 'px';
+            }
+          });
+        });
+
+        const selectAll = document.getElementById('selectAllLeft');
+        selectAll.checked = state.left.length > 0 && state.left.every(o => leftSelected.has(o.RowID));
+        selectAll.onclick = function() {
+          if (this.checked) {
+            state.left.forEach(o => leftSelected.add(o.RowID));
+          } else {
+            leftSelected.clear();
+          }
+          render();
+        };
+      }
+
+      function renderRight() {
+        const tbody = document.getElementById('rightBody');
+        document.getElementById('rightCount').textContent = state.right.length;
+
+        if (state.right.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="7" class="empty-state">Drag orders from left or use Add button</td></tr>';
+          document.getElementById('selectAllRight').checked = false;
+          return;
+        }
+
+        tbody.innerHTML = state.right.map(o => {
+          const checked = rightSelected.has(o.RowID);
+          return `
+          <tr data-rowid="${o.RowID}" draggable="true" class="${checked ? 'selected' : ''}">
+            <td style="text-align:center"><input type="checkbox" ${checked ? 'checked' : ''}></td>
+            <td class="drag-handle">⇅</td>
+            <td>${o.MaterialCode}</td>
+            <td>${o.MaterialDesc || 'N/A'}</td>
+            <td>${o.SerialNo}</td>
+            <td>${o.OrderNo}</td>
+            <td><span class="time-badge">${new Date(o.ScheduledTime).toLocaleString('en-GB', {hour: '2-digit', minute: '2-digit', hour12: false})}</span></td>
+          </tr>
+        `;
+        }).join('');
+
+        tbody.querySelectorAll('tr[data-rowid]').forEach(row => {
+          const rowId = parseInt(row.dataset.rowid);
+          const checkbox = row.querySelector('input[type="checkbox"]');
+
+          checkbox.addEventListener('change', function(e) {
+            e.stopPropagation();
+            if (this.checked) {
+              rightSelected.add(rowId);
+            } else {
+              rightSelected.delete(rowId);
+            }
+            render();
+          });
+
+          row.addEventListener('click', function(e) {
+            if (e.target.type !== 'checkbox' && !e.target.classList.contains('drag-handle')) {
+              if (rightSelected.has(rowId)) {
+                rightSelected.delete(rowId);
+              } else {
+                rightSelected.add(rowId);
+              }
+              render();
+            }
+          });
+
+          row.addEventListener('dragstart', () => {
+            draggedItems = [state.right.find(r => r.RowID === rowId)];
+            draggedFrom = 'right';
+            row.classList.add('dragging');
+          });
+
+          row.addEventListener('dragend', () => {
+            row.classList.remove('dragging');
+          });
+
+          row.addEventListener('dragover', (e) => {
+            if (draggedFrom === 'right') {
+              e.preventDefault();
+
+              const dragging = tbody.querySelector('.dragging');
+              if (!dragging || dragging === row) return;
+
+              const bounding = row.getBoundingClientRect();
+              const offset = e.clientY - bounding.top;
+
+              if (offset > bounding.height / 2) {
+                row.parentNode.insertBefore(dragging, row.nextSibling);
+              } else {
+                row.parentNode.insertBefore(dragging, row);
+              }
+            }
+          });
+
+          row.addEventListener('drop', async (e) => {
+            if (draggedFrom === 'right') {
+              e.preventDefault();
+
+              const rows = Array.from(tbody.querySelectorAll('tr[data-rowid]'));
+              state.right = rows.map(r => {
+                const id = parseInt(r.dataset.rowid);
+                return state.right.find(o => o.RowID === id);
+              }).filter(Boolean);
+
+              await recalcSchedule(p.plant, 240);
+
+              draggedItems = [];
+              draggedFrom = null;
+              render();
+            }
+          });
+        });
+
+        const selectAll = document.getElementById('selectAllRight');
+        selectAll.checked = state.right.length > 0 && state.right.every(o => rightSelected.has(o.RowID));
+        selectAll.onclick = function() {
+          if (this.checked) {
+            state.right.forEach(o => rightSelected.add(o.RowID));
+          } else {
+            rightSelected.clear();
+          }
+          render();
+        };
+      }
+
+      function updateButtons() {
+        const addBtn = document.getElementById('addBtn');
+        const removeBtn = document.getElementById('removeBtn');
+
+        addBtn.disabled = leftSelected.size === 0;
+        addBtn.textContent = leftSelected.size > 0 ? `➕ Add (${leftSelected.size})` : '➕ Add';
+
+        removeBtn.disabled = rightSelected.size === 0;
+        removeBtn.textContent = rightSelected.size > 0 ? `⬅ Remove (${rightSelected.size})` : '⬅ Remove';
+      }
+
+      window.addSelected = async () => {
+        if (leftSelected.size === 0) return;
+
+        const items = state.left.filter(o => leftSelected.has(o.RowID));
+        state.left = state.left.filter(o => !leftSelected.has(o.RowID));
+        state.right.push(...items);
+        leftSelected.clear();
+
+        await recalcSchedule(p.plant, 240);
+        render();
+      };
+
+      window.removeSelected = () => {
+        if (rightSelected.size === 0) return;
+
+        const items = state.right.filter(o => rightSelected.has(o.RowID));
+        items.forEach(o => delete o.ScheduledTime);
+        state.right = state.right.filter(o => !rightSelected.has(o.RowID));
+        state.left.push(...items);
+        state.left.sort((a,b) => new Date(a.OrderCreatedDate) - new Date(b.OrderCreatedDate));
+        rightSelected.clear();
+
+        render();
+      };
+
+      window.okSequence = async () => {
+        if (state.right.length === 0) {
+          alert('No orders scheduled!');
+          return;
+        }
+
+        const commitBtn = document.getElementById('commitBtn');
+        const successMsg = document.getElementById('successMessage');
+
+        commitBtn.disabled = true;
+        commitBtn.textContent = '⏳ Committing...';
+
+        try {
+          await commitSequence(state.right, p.username, p.clientid);
+          
+          successMsg.classList.add('show');
+          commitBtn.textContent = '✔ Committed';
+
+          setTimeout(() => {
+            window.location.reload();
+          }, 2000);
+        } catch (e) {
+          commitBtn.disabled = false;
+          commitBtn.textContent = '✔ OK - Commit';
+          alert('❌ Error: ' + e.message);
+        }
+      };
+
+      window.refreshData = async () => {
+        const refreshBtn = document.getElementById('refreshBtn');
+        refreshBtn.disabled = true;
+        refreshBtn.classList.add('refreshing');
+        refreshBtn.textContent = '🔄 Refreshing...';
+
+        try {
+          // Reload orders from database
+          const rows = await loadOrders({ ...p, mode: "Sequence" });
+
+          // Clear selections
+          leftSelected.clear();
+          rightSelected.clear();
+
+          // Update state
+          state.left = rows
+            .filter(o => !o.ScheduledTime)
+            .map(o => ({ ...o, RowID: parseInt(o.RowID) }))
+            .sort((a,b) => new Date(a.OrderCreatedDate) - new Date(b.OrderCreatedDate));
+
+          state.right = rows
+            .filter(o => o.ScheduledTime)
+            .map(o => ({ ...o, RowID: parseInt(o.RowID) }))
+            .sort((a,b) => new Date(a.ScheduledTime) - new Date(b.ScheduledTime));
+
+          // Update header info
+          document.getElementById('headerInfo').textContent =
+            `PlantCode: ${p.plant} | LineCode: ${p.line} | ${p.from} to ${p.to} | MaterialCode: ${p.material || 'ALL'} | Total: ${rows.length} | User: ${p.username || 'N/A'} | Client: ${p.clientid || 'N/A'}`;
+
+          // Re-render
+          render();
+
+          console.log('Data refreshed successfully');
+        } catch (error) {
+          console.error('Error refreshing data:', error);
+          alert('❌ Failed to refresh data: ' + error.message);
+        } finally {
+          refreshBtn.disabled = false;
+          refreshBtn.classList.remove('refreshing');
+          refreshBtn.textContent = '🔄 Refresh';
+        }
+      };
+
+      render();
+
+    } catch (error) {
+      console.error('Error:', error);
+      document.getElementById('leftBody').innerHTML =
+        `<tr><td colspan="6" class="empty-state" style="color: #f44336;">Error: ${error.message}</td></tr>`;
+    }
+  </script>
+</body>
+</html>

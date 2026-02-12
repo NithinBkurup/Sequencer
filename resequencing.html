@@ -1,0 +1,614 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Resequencing - MPAS</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body {
+      height: 100%;
+      overflow: hidden;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: #f0f2f5;
+    }
+    .main-container {
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      padding: 10px;
+      gap: 10px;
+    }
+    .header {
+      background: #ff9800;
+      color: white;
+      padding: 12px 20px;
+      border-radius: 6px;
+      flex-shrink: 0;
+      position: relative;
+    }
+    .header h1 { font-size: 20px; margin-bottom: 4px; }
+    .header .info { font-size: 13px; opacity: 0.9; }
+    .btn-refresh {
+      position: absolute;
+      right: 20px;
+      top: 50%;
+      transform: translateY(-50%);
+      background: rgba(255, 255, 255, 0.2);
+      color: white;
+      border: 1px solid rgba(255, 255, 255, 0.3);
+      padding: 6px 12px;
+      border-radius: 4px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .btn-refresh:hover {
+      background: rgba(255, 255, 255, 0.3);
+    }
+    .btn-refresh:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+    .btn-refresh.refreshing {
+      animation: spin 1s linear infinite;
+    }
+    @keyframes spin {
+      from { transform: translateY(-50%) rotate(0deg); }
+      to { transform: translateY(-50%) rotate(360deg); }
+    }
+
+    .container {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      flex: 1;
+      min-height: 0;
+    }
+    .panel {
+      background: white;
+      border-radius: 6px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+    }
+    .panel-header {
+      padding: 10px 15px;
+      border-bottom: 2px solid #e0e0e0;
+      font-weight: 600;
+      font-size: 14px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: #fafafa;
+      flex-shrink: 0;
+    }
+    .panel-header .count {
+      background: #ff9800;
+      color: white;
+      padding: 3px 10px;
+      border-radius: 10px;
+      font-size: 12px;
+    }
+    .panel-body {
+      flex: 1;
+      overflow: auto;
+      min-height: 0;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+    }
+    thead {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      background: #f5f5f5;
+    }
+    th {
+      padding: 8px 6px;
+      text-align: left;
+      font-weight: 600;
+      border-bottom: 2px solid #ddd;
+      background: #f5f5f5;
+      white-space: nowrap;
+      font-size: 11px;
+    }
+    td {
+      padding: 6px 6px;
+      border-bottom: 1px solid #eee;
+      font-size: 11px;
+    }
+    tbody tr {
+      cursor: move;
+      transition: background 0.15s;
+    }
+    tbody tr:hover {
+      background: #f9f9f9;
+    }
+    tbody tr.dragging {
+      opacity: 0.4;
+      background: #ffeb3b !important;
+    }
+
+    .drag-handle {
+      cursor: grab;
+      color: #999;
+      font-size: 16px;
+      text-align: center;
+      user-select: none;
+    }
+    tr.dragging .drag-handle {
+      cursor: grabbing;
+    }
+
+    .actions {
+      padding: 10px 15px;
+      background: white;
+      border-radius: 6px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+      display: flex;
+      justify-content: flex-end;
+      align-items: center;
+      gap: 15px;
+      flex-shrink: 0;
+    }
+    .btn {
+      padding: 8px 16px;
+      border: none;
+      border-radius: 4px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+      white-space: nowrap;
+    }
+    .btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+    .btn-ok {
+      background: #4caf50;
+      color: white;
+    }
+    .btn-ok:hover:not(:disabled) {
+      background: #45a049;
+    }
+    .empty-state {
+      text-align: center;
+      padding: 40px 20px;
+      color: #999;
+      font-size: 13px;
+    }
+
+    .time-badge {
+      background: #4caf50;
+      color: white;
+      padding: 2px 6px;
+      border-radius: 3px;
+      font-size: 10px;
+      white-space: nowrap;
+    }
+
+    tbody tr[data-material-group] {
+      background: #fff3e0;
+      font-weight: 600;
+    }
+    tbody tr[data-material-group]:hover {
+      background: #ffe0b2;
+    }
+
+    /* Success message */
+    .success-message {
+      display: none;
+      background: #4caf50;
+      color: white;
+      padding: 10px 20px;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 600;
+      animation: slideIn 0.3s ease-out;
+    }
+    .success-message.show {
+      display: block;
+    }
+    @keyframes slideIn {
+      from {
+        opacity: 0;
+        transform: translateX(-20px);
+      }
+      to {
+        opacity: 1;
+        transform: translateX(0);
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="main-container">
+    <div class="header">
+      <h1>🔄 Resequencing</h1>
+      <div class="info" id="headerInfo">Loading...</div>
+      <button class="btn-refresh" onclick="window.refreshData()" id="refreshBtn" title="Refresh data from database">
+        🔄 Refresh
+      </button>
+    </div>
+
+    <div class="container">
+      <div class="panel">
+        <div class="panel-header">
+          <span>Scheduled Orders - Drag ⇅ to Reorder</span>
+          <span class="count" id="leftCount">0</span>
+        </div>
+        <div class="panel-body">
+          <table>
+            <thead>
+              <tr>
+                <th style="width: 25px;">⇅</th>
+                <th>Material Code</th>
+                <th>Material Description</th>
+                <th>Serial No</th>
+                <th>Order No</th>
+                <th>Scheduled Time</th>
+              </tr>
+            </thead>
+            <tbody id="leftBody">
+              <tr><td colspan="6" class="empty-state">Loading...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-header">
+          <span>Material Groups - Drag ⇅ to Reorder Blocks</span>
+          <span class="count" id="rightCount">0</span>
+        </div>
+        <div class="panel-body">
+          <table>
+            <thead>
+              <tr>
+                <th style="width: 25px;">⇅</th>
+                <th>Material Code</th>
+                <th>Material Description</th>
+                <th style="width: 80px;">Count</th>
+                <th>First Scheduled</th>
+              </tr>
+            </thead>
+            <tbody id="rightBody">
+              <tr><td colspan="5" class="empty-state">Loading...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div class="actions">
+      <div class="success-message" id="successMessage">✓ Resequence committed successfully!</div>
+      <button class="btn btn-ok" onclick="window.okResequence()" id="commitBtn">✓ OK - Commit</button>
+    </div>
+  </div>
+
+  <script type="module">
+    import { getParams } from "./app.js";
+    import { loadOrders, commitResequence } from "./api.js";
+    import { state, buildMaterialGroups } from "./state.js";
+
+    const p = getParams();
+
+    try {
+      const rows = await loadOrders({ ...p, mode: "Resequence" });
+
+      console.log("Loaded resequence orders:", rows);
+
+      document.getElementById('headerInfo').textContent =
+        `PlantCode: ${p.plant} | LineCode: ${p.line} | ${p.from} to ${p.to} | MaterialCode: ${p.material || 'ALL'}  | Total: ${rows.length} | User: ${p.username || 'N/A'} | Client: ${p.clientid || 'N/A'}`;
+
+      state.right = rows
+        .filter(o => o.Sflag === 2 && o.OrderStatus === 'Ready' && o.ScheduledTime)
+        .map(o => ({ ...o, RowID: parseInt(o.RowID) }))
+        .sort((a,b) => new Date(a.ScheduledTime) - new Date(b.ScheduledTime));
+
+      console.log("Filtered ready orders:", state.right.length);
+
+      buildMaterialGroups();
+
+      let draggedItem = null;
+      let draggedFrom = null;
+
+      function renderRows() {
+        const tbody = document.getElementById('leftBody');
+        document.getElementById('leftCount').textContent = state.right.length;
+
+        if (state.right.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="6" class="empty-state">No orders ready for resequencing</td></tr>';
+          return;
+        }
+
+        tbody.innerHTML = state.right.map(o => {
+          return `
+            <tr data-rowid="${o.RowID}" draggable="true">
+              <td class="drag-handle">⇅</td>
+              <td>${o.MaterialCode}</td>
+              <td>${o.MaterialDesc || 'N/A'}</td>
+              <td>${o.SerialNo}</td>
+              <td>${o.OrderNo}</td>
+              <td><span class="time-badge">${new Date(o.ScheduledTime).toLocaleString('en-GB', {hour: '2-digit', minute: '2-digit', hour12: false})}</span></td>
+            </tr>
+          `;
+        }).join('');
+
+        attachRowHandlers();
+      }
+
+      function renderMaterials() {
+        const tbody = document.getElementById('rightBody');
+        document.getElementById('rightCount').textContent = state.materialGroups.length;
+
+        if (state.materialGroups.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="5" class="empty-state">No material groups</td></tr>';
+          return;
+        }
+
+        tbody.innerHTML = state.materialGroups.map((m, index) => {
+          return `
+            <tr data-group-index="${index}" draggable="true" data-material-group="true">
+              <td class="drag-handle">⇅</td>
+              <td>${m.MaterialCode}</td>
+              <td>${m.MaterialDesc || 'N/A'}</td>
+              <td>${m.Count} orders</td>
+              <td><span class="time-badge">${new Date(m.ScheduledTime).toLocaleString('en-GB', {hour: '2-digit', minute: '2-digit', hour12: false})}</span></td>
+            </tr>
+          `;
+        }).join('');
+
+        attachMaterialHandlers();
+      }
+
+      function attachRowHandlers() {
+        const tbody = document.getElementById('leftBody');
+
+        tbody.querySelectorAll('tr[data-rowid]').forEach(row => {
+          const rowId = parseInt(row.dataset.rowid);
+
+          row.addEventListener('dragstart', () => {
+            draggedItem = state.right.find(r => r.RowID === rowId);
+            draggedFrom = 'row';
+            row.classList.add('dragging');
+          });
+
+          row.addEventListener('dragend', () => {
+            row.classList.remove('dragging');
+          });
+
+          row.addEventListener('dragover', (e) => {
+            if (draggedFrom === 'row') {
+              e.preventDefault();
+
+              const dragging = tbody.querySelector('.dragging');
+              if (!dragging || dragging === row) return;
+
+              const bounding = row.getBoundingClientRect();
+              const offset = e.clientY - bounding.top;
+
+              if (offset > bounding.height / 2) {
+                row.parentNode.insertBefore(dragging, row.nextSibling);
+              } else {
+                row.parentNode.insertBefore(dragging, row);
+              }
+            }
+          });
+
+          row.addEventListener('drop', (e) => {
+            if (draggedFrom === 'row') {
+              e.preventDefault();
+
+              // Get current order of rows in DOM
+              const rows = Array.from(tbody.querySelectorAll('tr[data-rowid]'));
+              const rowIds = rows.map(r => parseInt(r.dataset.rowid));
+
+              // Create new ordered array
+              const newOrder = rowIds.map(id => state.right.find(o => o.RowID === id)).filter(Boolean);
+
+              // Extract all scheduled times (sorted)
+              const times = [...state.right].sort((a,b) => new Date(a.ScheduledTime) - new Date(b.ScheduledTime))
+                                           .map(o => o.ScheduledTime);
+
+              // Assign times to new order
+              newOrder.forEach((order, index) => {
+                order.ScheduledTime = times[index];
+              });
+
+              // Update state
+              state.right = newOrder;
+              buildMaterialGroups();
+
+              draggedItem = null;
+              draggedFrom = null;
+
+              renderRows();
+              renderMaterials();
+
+              console.log('Row reordered - times swapped');
+            }
+          });
+        });
+      }
+
+      function attachMaterialHandlers() {
+        const tbody = document.getElementById('rightBody');
+
+        tbody.querySelectorAll('tr[data-group-index]').forEach(row => {
+          const groupIndex = parseInt(row.dataset.groupIndex);
+
+          row.addEventListener('dragstart', () => {
+            draggedItem = state.materialGroups[groupIndex];
+            draggedFrom = 'material';
+            row.classList.add('dragging');
+          });
+
+          row.addEventListener('dragend', () => {
+            row.classList.remove('dragging');
+          });
+
+          row.addEventListener('dragover', (e) => {
+            if (draggedFrom === 'material') {
+              e.preventDefault();
+
+              const dragging = tbody.querySelector('.dragging');
+              if (!dragging || dragging === row) return;
+
+              const bounding = row.getBoundingClientRect();
+              const offset = e.clientY - bounding.top;
+
+              if (offset > bounding.height / 2) {
+                row.parentNode.insertBefore(dragging, row.nextSibling);
+              } else {
+                row.parentNode.insertBefore(dragging, row);
+              }
+            }
+          });
+
+          row.addEventListener('drop', (e) => {
+            if (draggedFrom === 'material') {
+              e.preventDefault();
+
+              // Get current order of material groups in DOM
+              const rows = Array.from(tbody.querySelectorAll('tr[data-group-index]'));
+              const groupIndices = rows.map(r => parseInt(r.dataset.groupIndex));
+
+              // Create new ordered material groups based on the DOM order
+              const newMaterialOrder = groupIndices.map(idx => state.materialGroups[idx]);
+
+              // Extract all scheduled times (sorted) and get the earliest time
+              const validTimes = state.right
+                .map(o => new Date(o.ScheduledTime))
+                .filter(d => !isNaN(d.getTime()))
+                .sort((a,b) => a - b);
+
+              if (validTimes.length === 0) {
+                console.error("No valid scheduled times found");
+                return;
+              }
+
+              // Start from the earliest scheduled time
+              let currentTime = new Date(validTimes[0]);
+              // Zero out milliseconds for clean timestamps
+              currentTime.setMilliseconds(0);
+              
+              const taktMs = 240 * 1000; // 4 minutes in milliseconds
+
+              const newRightOrder = [];
+
+              // Assign new sequential times to reordered material groups
+              newMaterialOrder.forEach(group => {
+                group.Orders.forEach(order => {
+                  // Create clean date object with milliseconds zeroed
+                  const scheduledTime = new Date(currentTime);
+                  scheduledTime.setMilliseconds(0);
+                  order.ScheduledTime = scheduledTime;
+                  
+                  newRightOrder.push(order);
+                  
+                  // Increment time for next order
+                  currentTime = new Date(currentTime.getTime() + taktMs);
+                });
+              });
+
+              // Update state
+              state.right = newRightOrder;
+              buildMaterialGroups();
+
+              draggedItem = null;
+              draggedFrom = null;
+
+              renderRows();
+              renderMaterials();
+
+              console.log('Material group reordered - sequential times assigned');
+            }
+          });
+        });
+      }
+
+      window.okResequence = async () => {
+        if (state.right.length === 0) {
+          alert('No orders to resequence!');
+          return;
+        }
+
+        const commitBtn = document.getElementById('commitBtn');
+        const successMsg = document.getElementById('successMessage');
+
+        commitBtn.disabled = true;
+        commitBtn.textContent = '⏳ Committing...';
+
+        try {
+          await commitResequence(state.right, p.username, p.clientid);
+
+          successMsg.classList.add('show');
+          commitBtn.textContent = '✓ Committed';
+
+          setTimeout(() => {
+            window.location.reload();
+          }, 2000);
+        } catch (e) {
+          commitBtn.disabled = false;
+          commitBtn.textContent = '✓ OK - Commit';
+          alert('❌ Error: ' + e.message);
+        }
+      };
+
+      window.refreshData = async () => {
+        const refreshBtn = document.getElementById('refreshBtn');
+        refreshBtn.disabled = true;
+        refreshBtn.classList.add('refreshing');
+        refreshBtn.textContent = '🔄 Refreshing...';
+
+        try {
+          // Reload orders from database
+          const rows = await loadOrders({ ...p, mode: "Resequence" });
+
+          // Update state
+          state.right = rows
+            .filter(o => o.Sflag === 2 && o.OrderStatus === 'Ready' && o.ScheduledTime)
+            .map(o => ({ ...o, RowID: parseInt(o.RowID) }))
+            .sort((a,b) => new Date(a.ScheduledTime) - new Date(b.ScheduledTime));
+
+          // Update header info
+          document.getElementById('headerInfo').textContent =
+            `PlantCode: ${p.plant} | LineCode: ${p.line} | ${p.from} to ${p.to} | MaterialCode: ${p.material || 'ALL'} | Total: ${rows.length} | User: ${p.username || 'N/A'} | Client: ${p.clientid || 'N/A'}`;
+
+          // Rebuild material groups
+          buildMaterialGroups();
+
+          // Re-render
+          renderRows();
+          renderMaterials();
+
+          console.log('Data refreshed successfully');
+        } catch (error) {
+          console.error('Error refreshing data:', error);
+          alert('❌ Failed to refresh data: ' + error.message);
+        } finally {
+          refreshBtn.disabled = false;
+          refreshBtn.classList.remove('refreshing');
+          refreshBtn.textContent = '🔄 Refresh';
+        }
+      };
+
+      renderRows();
+      renderMaterials();
+
+    } catch (error) {
+      console.error('Error:', error);
+      document.getElementById('leftBody').innerHTML =
+        `<tr><td colspan="6" class="empty-state" style="color: #f44336;">Error: ${error.message}</td></tr>`;
+    }
+  </script>
+</body>
+</html>
