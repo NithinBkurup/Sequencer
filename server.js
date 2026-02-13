@@ -21,6 +21,57 @@ const config = {
 };
 const APP_PORT = parseInt(process.env.MPAS_APP_PORT || "3010");
 
+// Configuration endpoints
+app.get("/api/config", (req, res) => {
+  try {
+    // Return current environment variables
+    res.json({
+      MPAS_DB_HOST: process.env.MPAS_DB_HOST || '',
+      MPAS_DB_PORT: process.env.MPAS_DB_PORT || '1433',
+      MPAS_DB_NAME: process.env.MPAS_DB_NAME || '',
+      MPAS_DB_USER: process.env.MPAS_DB_USER || '',
+      MPAS_DB_PASS: process.env.MPAS_DB_PASS || '',
+      MPAS_APP_PORT: process.env.MPAS_APP_PORT || '3010'
+    });
+  } catch (e) {
+    console.error("Error reading config:", e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post("/api/config", async (req, res) => {
+  try {
+    const fs = await import('fs');
+    const path = await import('path');
+    
+    const config = req.body;
+    
+    // Build .env file content
+    const envContent = [
+      `# MPAS Database Configuration`,
+      `MPAS_DB_HOST=${config.MPAS_DB_HOST || ''}`,
+      `MPAS_DB_PORT=${config.MPAS_DB_PORT || '1433'}`,
+      `MPAS_DB_NAME=${config.MPAS_DB_NAME || ''}`,
+      `MPAS_DB_USER=${config.MPAS_DB_USER || ''}`,
+      `MPAS_DB_PASS=${config.MPAS_DB_PASS || ''}`,
+      ``,
+      `# Application Configuration`,
+      `MPAS_APP_PORT=${config.MPAS_APP_PORT || '3010'}`,
+      ``
+    ].join('\n');
+    
+    // Write to .env file
+    const envPath = path.join(process.cwd(), '.env');
+    fs.writeFileSync(envPath, envContent, 'utf8');
+    
+    console.log('.env file updated successfully');
+    res.json({ success: true, message: 'Configuration saved. Please restart the server.' });
+  } catch (e) {
+    console.error("Error saving config:", e.message);
+    res.status(500).send(e.message);
+  }
+});
+
 // Test endpoint
 app.get("/api/test", async (req, res) => {
   try {
@@ -206,5 +257,6 @@ app.post("/api/resequence", async (req, res) => {
 app.listen(APP_PORT, () => {
   console.log("=".repeat(50));
   console.log(`Sequencer running on http://localhost:${APP_PORT}`);
+  console.log(`Configuration page: http://localhost:${APP_PORT}/config.html`);
   console.log("=".repeat(50));
 });
